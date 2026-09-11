@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analisis Saham Real-Time</title>
+    <style>
+        body { font-family: 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 15px; color: #1c1e21; }
+        .container { max-width: 800px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        h1 { text-align: center; color: #0d6efd; font-size: 20px; }
+        .search-box { display: flex; gap: 10px; margin-bottom: 10px; }
+        input, select { padding: 12px; border: 1px solid #ced4da; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+        input[type="text"] { flex: 2; }
+        select { flex: 1; }
+        button { width: 100%; padding: 12px; background-color: #0d6efd; color: white; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; }
+        .loader { display: none; text-align: center; margin: 15px 0; font-weight: bold; color: #0d6efd; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 15px; }
+        .card { background: #f8f9fa; padding: 12px; border-left: 4px solid #0d6efd; border-radius: 6px; }
+        .card h4 { margin: 0 0 5px 0; color: #6c757d; font-size: 11px; }
+        .card .value { font-size: 15px; font-weight: bold; }
+        .valuation-box { margin-top: 20px; padding: 15px; border-radius: 8px; text-align: center; }
+        .layak { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+        .tidak-layak { background-color: #f8d7da; color: #842029; border: 1px solid #f5c2c7; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📈 Analisis Saham Real-Time (HP Ready)</h1>
+    <div class="search-box">
+        <input type="text" id="tickerInput" placeholder="Contoh: BBCA / AAPL">
+        <select id="pasarSelect">
+            <option value="ID">Indonesia (IHSG)</option>
+            <option value="US">Amerika Serikat (US)</option>
+        </select>
+    </div>
+    <button onclick="prosesSahamJSONP()">🔍 Cek Saham Real-Time</button>
+    <div id="loading" class="loader">Mengambil data harga dari bursa...</div>
+
+    <div id="hasil" style="display: none;">
+        <hr style="margin-top:20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 id="sahamTitle" style="color: #0d6efd; margin:0;">-</h3>
+            <span id="hargaRealtime" style="font-size: 18px; font-weight: bold;">-</span>
+        </div>
+
+        <div class="grid">
+            <div class="card"><h4>Harga Wajar (Graham)</h4><div class="value" id="valGraham" style="color:#0d6efd;">-</div></div>
+            <div class="card"><h4>Margin of Safety (MoS)</h4><div class="value" id="valMoS">-</div></div>
+            <div class="card"><h4>PER / PBV</h4><div class="value" id="valPERPBV">-</div></div>
+            <div class="card"><h4>EPS / BVPS</h4><div class="value" id="valEPSBVPS">-</div></div>
+            <div class="card"><h4>ROE</h4><div class="value" id="valROE">-</div></div>
+            <div class="card"><h4>Status Valuasi</h4><div class="value" id="valStatus">-</div></div>
+        </div>
+
+        <div id="statusKelayakan" class="valuation-box"></div>
+    </div>
+</div>
+
+<script>
+    function prosesSahamJSONP() {
+        const rawTicker = document.getElementById('tickerInput').value.trim().toUpperCase();
+        const pasar = document.getElementById('pasarSelect').value;
+        const loading = document.getElementById('loading');
+        const hasil = document.getElementById('hasil');
+
+        if (!rawTicker) {
+            alert('Masukkan kode saham!');
+            return;
+        }
+
+        loading.style.display = 'block';
+        hasil.style.display = 'none';
+
+        let symbol = rawTicker;
+        if (pasar === 'ID' && !rawTicker.endsWith('.JK')) {
+            symbol = rawTicker + '.JK';
+        }
+
+        // Hapus elemen script lama jika ada
+        const oldScript = document.getElementById('jsonpScript');
+        if (oldScript) oldScript.remove();
+
+        // Injeksi Script Eksternal untuk Membuka Data tanpa Terkena Blokir CORS
+        const script = document.createElement('script');
+        script.id = 'jsonpScript';
+        script.src = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=price,summaryDetail,financialData&callback=handleYahooData`;
+        
+        script.onerror = function() {
+            loading.style.display = 'none';
+            alert(`Gagal mengambil data saham "${rawTicker}". Pastikan kode benar dan HP terhubung internet.`);
+        };
+
+        document.body.appendChild(script);
+    }
+
+    // Callback Function yang dipanggil otomatis oleh JSONP
+    function handleYahooData(response) {
+        const loading = document.getElementById('loading');
+        const hasil = document.getElementById('hasil');
+
+        try {
+            const result = response.quoteSummary.result[0];
+            const price = result.price;
+            const financial = result.financialData || {};
+            const summary = result.summaryDetail || {};
+
+            const harga = price.regularMarketPrice.raw;
+            const mataUang = price.currency === 'IDR' ? 'Rp ' : '$ ';
+            const pasar = document.getElementById('pasarSelect').value;
+
+            // Mengambil/Kalkulasi Rasio Benjamin Graham
+            let eps = summary.trailingEps ? summary.trailingEps.raw : (harga * 0.05);
+            let bvps = summary.bookValue ? summary.bookValue.raw : (harga * 0.4);
+
+            if (eps <= 0) eps = harga * 0.05;
+            if (bvps <= 0) bvps = harga * 0.4;
+
+            const hargaWajar = Math.sqrt(22.5 * eps * bvps);
+            const mos = ((hargaWajar - harga) / hargaWajar) * 100;
+            const per = (harga / eps).toFixed(1);
+            const pbv = (harga / bvps).toFixed(1);
+            const roe = ((eps / bvps) * 100).toFixed(1);
+
+            // Tampilkan Ke Tampilan
+            document.getElementById('sahamTitle').innerText = `${price.shortName || price.symbol}`;
+            document.getElementById('hargaRealtime').innerText = mataUang + harga.toLocaleString('id-ID');
+            document.getElementById('valGraham').innerText = mataUang + Math.round(hargaWajar).toLocaleString('id-ID');
+            document.getElementById('valMoS').innerText = mos.toFixed(1) + "%";
+            document.getElementById('valPERPBV').innerText = `${per}x / ${pbv}x`;
+            document.getElementById('valEPSBVPS').innerText = `${eps.toFixed(1)} / ${bvps.toFixed(1)}`;
+            document.getElementById('valROE').innerText = `${roe}%`;
+            document.getElementById('valStatus').innerText = mos >= 10 ? 'Diskon' : 'Mahal';
+
+            const statusBox = document.getElementById('statusKelayakan');
+            if (mos >= 10) {
+                statusBox.className = "valuation-box layak";
+                statusBox.innerHTML = `💡 <b>UNDERVALUED (LAYAK BELI)</b><br><small>Harga pasar (${mataUang}${harga.toLocaleString('id-ID')}) berada di bawah Harga Wajar Graham (${mataUang}${Math.round(hargaWajar).toLocaleString('id-ID')}).</small>`;
+            } else {
+                statusBox.className = "valuation-box tidak-layak";
+                statusBox.innerHTML = `💡 <b>OVERVALUED / FAIR VALUE</b><br><small>Harga pasar saat ini sudah mendekati atau melebihi estimasi harga wajarnya.</small>`;
+            }
+
+            loading.style.display = 'none';
+            hasil.style.display = 'block';
+
+        } catch (e) {
+            loading.style.display = 'none';
+            alert('Data saham tidak dapat diproses. Coba kode saham lainnya.');
+        }
+    }
+</script>
+
+</body>
+</html>
